@@ -122,15 +122,14 @@ class SegDedup:
         state = tf.reshape(state, [1, 4])
         if np.random.rand() <= self.expl_rt:
             return self.env.action_space.sample()
-        print(state)
-        print(state.shape)
         q_values = self.q_network.predict(state)
         return np.argmax(q_values[0])
 
     def retrain(self, batch_size):
         minibatch = random.sample(self.experience_replay, batch_size)
         for state, action, reward, next_state, done in minibatch:
-
+            state = tf.reshape(state, [1, 4])
+            next_state = tf.reshape (next_state, [1, 4])
             target = self.q_network.predict(state)
 
             if done:
@@ -166,7 +165,6 @@ class SegDedup:
 
             for time_step in range(time_steps_per_episode):
                 action = self.act(state)
-
                 # Take action
                 next_state, reward, done = self.env.step(action)
                 self.memory(state, action, reward, next_state, done)
@@ -175,7 +173,6 @@ class SegDedup:
                 eps_reward += reward
 
                 if done:
-                    print(done)
                     self.align_models()
                     print("episode: {}/{}, score: {}, e: {:.2}".format(ep, self.max_episodes, time_step, self.expl_rt))
                     break
@@ -234,11 +231,13 @@ if __name__ == '__main__':
     ds = pd.read_csv(df, dtype=np.int64, chunksize=1000, nrows=20000)
     seg_size = 4096
     percentage = 0.01
-    max_ep = 100
+    max_ep = 1000
     exploration_rate = 1.00  # going to be decayed later
     discount_factor = 0.99
     hidden_units = 32
 
     agent = SegDedup(ds, seg_size, percentage, max_ep, exploration_rate, discount_factor, hidden_units)
-    agent.train(batch_size=32)
+    print (len(agent.segments))
+    print (len(agent.sample))
+    #agent.train(batch_size=32)
     # print (agent.sample)
