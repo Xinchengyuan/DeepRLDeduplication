@@ -102,18 +102,17 @@ def get_all_segments(data, size):
 """
 
 
-def sample_segment(percentage, sl):
-    if percentage == 0:
-        return sl
+def sample_segment(percent_range, sl):
+    if len(percent_range) != 2:
+        return "Invalid percentage range"
     else:
         sample_ls = []
         for k in range(len(sl)):
-            # prob = float(crc32(str(k).encode()) & 0xffffffff) / 2 ** 32
+        # prob = float(crc32(str(k).encode()) & 0xffffffff) / 2 ** 32
             prob = bytes_to_float(str(k).encode())
-            if 0 <= prob < percentage:
+            if percent_range[0] < prob <= percent_range[1]:
                 sample_ls.append(sl[k][:4])  # append only first 4 elements as features
-
-    return sample_ls
+        return sample_ls
 
 
 """
@@ -123,7 +122,7 @@ return the sample and original segments
 """
 
 
-def get_all_sample(percentage, sl):
+def get_all_sample(percent_range, sl):
     print("sampling")
 
     if not sl:
@@ -132,7 +131,7 @@ def get_all_sample(percentage, sl):
         sample = []
         n = mp.cpu_count() - 1
         seg_splt = list(split_lst(sl, n))
-        arg_pairs = list(zip([percentage] * n, seg_splt))
+        arg_pairs = list(zip([percent_range] * n, seg_splt))
         pool = mp.Pool(n)
         sp = pool.starmap(sample_segment, arg_pairs)
         for seg in sp:
