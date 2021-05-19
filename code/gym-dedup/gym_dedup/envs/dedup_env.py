@@ -55,9 +55,10 @@ class DedupEnv(gym.Env):
     """check if the maximum and minimum chunk hash of current segment exists in the cache"""
 
     def _check_seg(self):
-        for subLst in self.cache:
-            if all(x in subLst for x in [self.min_chunk, self.max_chunk]):
-                return True
+        if self.cache:
+            for subLst in self.cache:
+                if all(x in subLst for x in [self.min_chunk, self.max_chunk]):
+                    return True
         return False
 
     """How the agent should take action. 
@@ -74,17 +75,16 @@ class DedupEnv(gym.Env):
         # state = 0  # initial state
         reward = 0
         if action == 1:  # storing a chunk to cache
-            if self.cache:  # if cache is not empty
-                if self._check_seg():
-                    self.done_flag = 1  # terminate since duplicate segment selected
-                    print("terminated")
-                    return -1 * int(self.seg_size)  # wasted this much of space
-                self.cache.append(self.state)
+            if self._check_seg():
+                print("Duplicate segment selected")
+                self.done_flag = 1  # terminate since duplicate segment selected
+                return -1 * int(self.seg_size)  # wasted this much of space
+            self.cache.append(self.state)
         else:
-            if not self._check_seg() or not self.cache:  # a unique segment is omitted:
-                self.done_flag = 1  # terminate
-                return -1 * int(self.seg_size)  # lost this much of info
-
+            if not self._check_seg():  # a unique segment is omitted:
+                #print("Unique segment omitted")
+               #self.done_flag = 1  # terminate
+                return -2 * int(self.seg_size)  # lost this much of info
         reward = self.seg_size
 
         # if any(self.chunk_hsh in subl for subl in self.cache):
@@ -114,18 +114,18 @@ class DedupEnv(gym.Env):
         return reward
 
     def step(self, action):
+        done = False
         self._next_row()
         reward = self._act_(action)
-        reward = reward
-        # done = (len(self.cache) == self.thresh)
-        # update current step
         curr_state = self.state
-        self.current_step = self.current_step + 1
-        if self.done_flag == 0:
-            if self.current_step == self.data_length-1:
-                self.done_flag = 1
-                print(self.current_step)
-        done = True if self.done_flag == 1 else False
+        if self.current_step == self.data_length-1:
+            self.done_flag = 1
+
+        if self.done_flag == 1:
+           done = True
+        else:
+           self.current_step = self.current_step + 1
+
         # info = f' state: {curr_state}, reward: {reward}, cache size: {len(self.cache)}'
 
         return curr_state, reward, done
@@ -140,7 +140,7 @@ class DedupEnv(gym.Env):
         self.cache = []
         self.state = [0, 0, 0, 0]
         self.current_step = 0
-        self.done_flag == 0
+        self.done_flag = 0
         return self.state
 
     # return cache

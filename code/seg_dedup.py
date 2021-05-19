@@ -73,8 +73,8 @@ class SegDedup:
         self.data = data
         self.size = size
         self.perc = perc
-        self.segments = dp.get_all_segments(self.data, self.size)
-        self.sample = dp.get_all_sample(self.perc, self.segments)
+        # self.segments = dp.get_all_segments(self.data, self.size)
+        self.sample = dp.get_all_sample(self.perc, self.data)
         self.sample = np.asarray(self.sample, dtype=np.int64)
         self.discount = discount
 
@@ -88,7 +88,6 @@ class SegDedup:
 
         # model
         self.in_units = self.env.observation_space.shape[0]
-        print(self.in_units)
         self.out_units = self.env.action_space.n
         self.hidden = hidden
         # self.saver = tf.compat.v1.train.Saver()
@@ -129,7 +128,7 @@ class SegDedup:
         minibatch = random.sample(self.experience_replay, batch_size)
         for state, action, reward, next_state, done in minibatch:
             state = tf.reshape(state, [1, 4])
-            next_state = tf.reshape (next_state, [1, 4])
+            next_state = tf.reshape(next_state, [1, 4])
             target = self.q_network.predict(state)
 
             if done:
@@ -140,6 +139,7 @@ class SegDedup:
             self.q_network.fit(state, target, epochs=1, verbose=0)
 
     def train(self, batch_size):
+        print("Training")
         self.q_network.summary()
         rewards = [0]
         EPISODE_INTERVAL = 100
@@ -180,8 +180,8 @@ class SegDedup:
                 if len(self.experience_replay) > batch_size:
                     self.retrain(batch_size)
 
-                if time_step % 10 == 0:
-                    bar.update(time_step / 10 + 1)
+                # if time_step % 10 == 0:
+                # bar.update(time_step / 10 + 1)
 
                 # Append episode reward to a list and log stats (every given number of episodes)
                 rewards.append(eps_reward)
@@ -193,10 +193,10 @@ class SegDedup:
                                                   reward_max=max_reward, epsilon=self.expl_rt)
 
                     # Save model, but only when min reward is greater or equal a set value
-                    if min_reward >= 0:
-                        self.q_network.save(
-                            f'models/{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__'
-                            f'{int(time.time())}.model')
+                    # if min_reward >= 0:
+                    # self.q_network.save(
+                    # f'models/{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__'
+                    # f'{int(time.time())}.model')
 
             # decay the epsilon
 
@@ -209,6 +209,55 @@ class SegDedup:
                 print("*****************************")
                 print("Episode: {}".format(ep + 1))
                 print("*****************************")
+
+    def get_cache(self):
+        return self.env.get_cache()
+
+
+def generate_data(perc):
+    n = 1000 - int(1000 * perc)
+    ls = []
+    k = 1
+    for i in range(n):
+        ls.append(list(range(k, k + 4)))
+        k = k + 4
+    # if perc == 0.1:
+    # res = ls
+    # for j in range(1000):
+    # res.append(ls[j])
+    # else:
+    res = ls * int((1000 / n))
+    return res
+
+
+def dedup(seg, seg_size, perc, max_ep, exploration_rate, discount_factor, hidden_units, times, original_size):
+    dedup_ratios = []
+    sum_cum = 0
+    for i in range(times):
+        print("Round ", i)
+        if len(seg) == 0:
+            break
+        agent = SegDedup(seg, seg_size, perc, max_ep, exploration_rate, discount_factor, hidden_units)
+        # train
+        agent.train(batch_size=32)
+        # get_cache
+        cache = agent.get_cache()
+
+        # calculate cumulated dedup ratio
+        sum_cum = sum_cum + sum([subl[3] for subl in cache])
+        print(sum_cum)
+        dedup_ratios.append(int(original_size) / sum_cum)
+
+        # update data
+        temp = []
+        cache = np.array(cache).tolist()
+        print (cache)
+        if not type(cache) == type(None):
+            for s in seg:
+                if s not in cache:
+                    temp.append(s)
+            seg = temp
+    return dedup_ratios
 
 
 """
@@ -230,14 +279,30 @@ if __name__ == '__main__':
     df = "../data/out.csv"
     ds = pd.read_csv(df, dtype=np.int64, chunksize=1000, nrows=20000)
     seg_size = 4096
-    percentage = 0.01
-    max_ep = 1000
+    percentage = [0, 0.01]
+    max_ep = 2
     exploration_rate = 1.00  # going to be decayed later
     discount_factor = 0.99
     hidden_units = 32
 
-    agent = SegDedup(ds, seg_size, percentage, max_ep, exploration_rate, discount_factor, hidden_units)
-    print (len(agent.segments))
-    print (len(agent.sample))
-    #agent.train(batch_size=32)
-    # print (agent.sample)
+    data = generate_data(0.95)
+    # agent = dedup(seg, seg_size, percentage, max_ep, exploration_rate, discount_factor, hidden_units,3)
+    orignal_size = sum([subl[3] for subl in data])
+
+    rt = dedup(data, seg_size, percentage, max_ep, exploration_rate, discount_factor, hidden_units, 10, orignal_size)
+    print(rt)
+    st = []
+    for item in data:
+        if item not in st:
+            st.append(item)
+    optimal_dedup = orignal_size / sum([subl[3] for subl in st])
+    print("Optimal dedup ratio: ", optimal_dedup)
+    # agent.train(batch_size=32)
+    """sp = agent.sample.tolist()
+    print(sp)
+    print(len(sp))
+    st = []
+    for item in sp:
+        if item not in st:
+            st.append(item)
+    print(len(st))"""
