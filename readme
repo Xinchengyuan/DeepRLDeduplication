@@ -13,5 +13,5 @@ After installing pip3, install packages using command:
 You also need:
 - gym (pip3 install gym)
 
-After installing gym, cd to DeepRLDeduplication/code/gym-dedup/, then run "pip install -e ." (do not forget the period(.) ) to install the environment that the RL agent will be interacting with.
+After installing gym, cd to DeepRLDeduplication/code/gym-dedup/, then run "pip3 install -e ." (do not forget the period(.) ) to install the environment that the RL agent will be interacting with.
 
