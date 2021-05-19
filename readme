@@ -7,7 +7,7 @@ Package Required:
 -Keras
 -progressbar
 
-After installing pip3, installing packages using command:
+After installing pip3, install packages using command:
     pip3 install (package name)
 
 You also need:
