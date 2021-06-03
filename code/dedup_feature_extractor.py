@@ -5,67 +5,92 @@ Created on Wed Mar 11 16:22:39 2020
 @author: xinch
 """
 import os
-import csv
+# import csv
+import subprocess
 
 
-#def extract(path, files, dataset1, dataset2):
-def extract(path, files, dataset):
-    total_lines = 2667130717
-    features = ["Chunk _Hash", "Chunk_Size", "Whole _File_Hash"]
-    # features_1 = ["Whole _File_Hash", "Num_Cks", "Modification_Time"]
-    current_file_hash = []
-    #ck_num = 0  # total number of chunks in a file
-    #md_time = ""  # File modification time
-    count = 0
-    # with open(dataset, "w") as output1, open(dataset2, "w") as output2:
-    with open(dataset, "w") as output1:
-        writer1 = csv.writer(output1, lineterminator='\n')
-        #writer2 = csv.writer(output2, lineterminator='\n')
-        writer1.writerow(features)
-        #writer2.writerow(features_1)
-        print("0% done")
-        for file in files:
-            if file.endswith(".txt"):
-                file_in = path + "/" + file
-                inputf = open(file_in, "r")
-                for line in inputf:
-                    #if line.startswith("Chunks"):
-                        #ck_num = int(line.split(":")[1])
-                    #elif ck_num > 0 and line.startswith("Modification"):  # skip files with no chunks
-                        #md_time = str(line.split(": ")[1])  # don't remove space after colon
-                       # md_time = md_time.split(' ', 1)[1]
-                    #elif line.startswith("Chunk Hash"):
-                    if line.startswith("Chunk Hash"):
-                        curr_line = next(inputf, None)  # skip the current line
-                        while curr_line.strip():  # while the following lines are non-empty,
-                            # record all chunk hashes
-                            nlst = curr_line.split()
-                            current_file_hash.append((str(nlst[0]).replace(":", "").strip(), nlst[1].strip()))
-                            curr_line = next(inputf, None)
-                            count = count + 1
-                    elif line.startswith("Whole"):
-                        wlst = line.split(":")
-                        wfc = str(wlst[1].strip())
-                        # Writing
-                        for fh in current_file_hash:
-                            writer1.writerow([fh[0], fh[1], wfc])
-                            current_file_hash = []
-                        #writer2.writerow([wfc, ck_num, md_time])
-                    count = count + 1
-                    if count % 26671300 == 0:
-                        print("{:.1f}% Done".format(100 * (count / total_lines)))
-        inputf.close()
+class featureExtractor():
+    """
+      Feature Extractor
+      Parameters:
+         - Path: path to directory containing hash.anon data files
+    """
 
+    def __init__(self, path):
+        self.path = path
+        self.files = sorted(
+            [f for f in os.listdir(self.path) if f.endswith('.hash.anon')])  # a queue of file names sorted
+        self.file_num = len(self.files)
+        self.done = False
+        self.info = ""  # self.information text to extract data from
 
+    """ Run Command"""
+
+    def hf_stat(self, file):
+        hf_path = '/Users/test/Documents/SegDedup/fs-hasher-0.9.5/hf-stat '  # Path to directory where hf-stat is installed
+        cmd = hf_path + '-h -w -f ' + file
+        out = subprocess.check_output(cmd, shell=True, text=True)
+        # remove empty lines
+        out = "".join([s for s in out.strip().splitlines(True) if s.strip()])
+        lines = out.split('\n')
+        return lines
+
+    """Get next file self.info, return: 
+        1. File Hash
+        2. Chunk self.info: [(chunk1, size), (chunk2, size2)...] ]
+    """
+
+    def next_file(self):
+        file_hash = 0
+        chunk = []
+        wfh = ""
+        i = 0
+
+        if not self.info:
+            if self.files:
+                i = self.file_num - len(self.files) + 1
+                print("processing file {n} / {t}" .format(n=i, t=self.file_num))
+                # retrieve a new document, which is the first document in queue
+                #print(self.files)
+                curr_file = self.files.pop(0)
+                # parse the file with hf-stat
+                complete_path = self.path + "/" + curr_file
+                self.info = self.hf_stat(complete_path)
+            ## Extract the fingerprint of the next file and chunks contained ##
+            else:
+                self.done = True
+                return "", []
+            # delete unuseful lines
+        while self.info and not self.info[0].startswith('Chunk Hash'):
+            del (self.info[0])
+
+        if self.info:
+            # delete the header line "Chunk Hash   Chunk Size (bytes) 	Compression Ratio (tenth)"
+            del (self.info[0])
+            # load chunk hashes and sizes
+            while not self.info[0].startswith('Whole File'):  # Stop before the whole file hash line
+                # record all chunk hashes
+                temp = self.info.pop(0).split()
+                current_chunk = temp[0].replace(":", "").strip()
+                current_chunk = hex(int(current_chunk, 16))
+                curr_size = int(temp[1])
+                chunk.append((current_chunk, curr_size))
+            # get whole file chunk
+            fc = self.info.pop(0).split(":")
+            wfh = hex(int(fc[1], 16))
+        return wfh, chunk
+
+    def is_done(self):
+        return self.done
+"""
 def main():
-    path = "C:/Users/xinch/Documents/298Proj/data/2012-user3And5/User3/tar/extract/2kb/txt"
-    data1 = "user03_chunks.csv"
-    #data2 = "user05_files.csv"
-    all_files = os.listdir(path)
-    #extract(path, all_files, data1, data2)
-    extract(path, all_files, data1)
+    path = "/Users/test/Documents/SegDedup/data/user5"
+    fe = FeatureExtractor(path)
+    for i in range(3):
+        print(fe.next_file())
     print("Done !!")
 
 
 if __name__ == "__main__":
     main()
+"""
