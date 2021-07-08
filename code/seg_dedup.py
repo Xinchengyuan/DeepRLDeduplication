@@ -5,12 +5,14 @@ import numpy as np
 import os
 import time
 from collections import deque
+
+from dedup_feature_extractor import featureExtractor
+from data_preprocessing import DataPreprocessor
 import tensorflow as tf
 import gym_dedup
 # from argparse import ArgumentParser
 import data_preprocessing as dp
 from keras.callbacks import TensorBoard
-
 import progressbar
 
 
@@ -61,24 +63,25 @@ class ModifiedTensorBoard(TensorBoard):
 
 class SegDedup:
     """
-       data: file chunk data
+       path: path to .hash.anon data files
        size: segment size threshold
+       cache_size_thresh: cache size threshold
        perc: sample ratio
        expl_rt exploration_rate:
        hidden: number of hidden_units
     """
 
-    def __init__(self, data, size, perc, max_episodes, expl_rt, discount, hidden):
+    def __init__(self, path, size, cache_size_thresh, perc, max_episodes, expl_rt, discount, hidden):
         # environment
-        self.data = data
+        self.path = path
         self.size = size
         self.perc = perc
-        # self.segments = dp.get_all_segments(self.data, self.size)
-        self.sample = dp.get_all_sample(self.perc, self.data)
-        self.sample = np.asarray(self.sample, dtype=np.int64)
+        # self.sample = np.asarray(self.sample, dtype=np.int64)
         self.discount = discount
-
-        self.env = gym.make('dedup-v0', seg=self.sample)
+        feature_extractor = featureExtractor(path=self.path, mode='sample')
+        data_preprocessor = DataPreprocessor()
+        self.env = gym.make('dedup-v0', size=self.size, feature_extractor=feature_extractor,
+                            data_preprocessor=data_preprocessor, cache_thresh=cache_size_thresh)
 
         # hyper-parameters
         self.max_episodes = max_episodes
@@ -118,7 +121,7 @@ class SegDedup:
         self.target_network.set_weights(self.q_network.get_weights())
 
     def act(self, state):
-        state = tf.reshape(state, [1, 4])
+        state = tf.reshape(state, [1, 3])
         if np.random.rand() <= self.expl_rt:
             return self.env.action_space.sample()
         q_values = self.q_network.predict(state)
@@ -127,8 +130,8 @@ class SegDedup:
     def retrain(self, batch_size):
         minibatch = random.sample(self.experience_replay, batch_size)
         for state, action, reward, next_state, done in minibatch:
-            state = tf.reshape(state, [1, 4])
-            next_state = tf.reshape(next_state, [1, 4])
+            state = tf.reshape(state, [1, 3])
+            next_state = tf.reshape(next_state, [1, 3])
             target = self.q_network.predict(state)
 
             if done:
@@ -251,7 +254,7 @@ def dedup(seg, seg_size, perc, max_ep, exploration_rate, discount_factor, hidden
         # update data
         temp = []
         cache = np.array(cache).tolist()
-        print (cache)
+        print(cache)
         if not type(cache) == type(None):
             for s in seg:
                 if s not in cache:

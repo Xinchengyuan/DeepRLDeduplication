@@ -13,14 +13,31 @@ class featureExtractor():
     """
       Feature Extractor
       Parameters:
-         - Path: path to directory containing hash.anon data files
+         - path: path to directory containing hash.anon data files
+         - mode: input files selection mode (see details below):
+            - default: use all files in path
+            - sample: use every 2^n th file as sample
     """
 
-    def __init__(self, path):
+    def __init__(self, path, mode):
         self.path = path
+        self.mode = mode
         self.files = sorted(
             [f for f in os.listdir(self.path) if f.endswith('.hash.anon')])  # a queue of file names sorted
-        self.file_num = len(self.files)
+        if self.mode == 'sample':
+            print("Sampling")
+            sample = [self.files[0]]
+            i = 0
+            while True:
+                if 2 ** i >= len(self.files):
+                    break
+                else:
+                    sample.append(self.files[i ** 2])
+            sample.append(self.files[-1])
+            self.files = sample
+
+        self.snapshot_num = len(self.files)
+        self.new_snapshot = False
         self.done = False
         self.info = ""  # self.information text to extract data from
 
@@ -45,13 +62,14 @@ class featureExtractor():
         chunk = []
         wfh = ""
         i = 0
-
+        self.new_snapshot = False
         if not self.info:
             if self.files:
-                i = self.file_num - len(self.files) + 1
-                print("processing file {n} / {t}" .format(n=i, t=self.file_num))
+                self.new_snapshot = True
+                i = self.snapshot_num - len(self.files) + 1
+                print("processing snapshot {n} / {t}".format(n=i, t=self.snapshot_num))
                 # retrieve a new document, which is the first document in queue
-                #print(self.files)
+                # print(self.files)
                 curr_file = self.files.pop(0)
                 # parse the file with hf-stat
                 complete_path = self.path + "/" + curr_file
@@ -80,8 +98,7 @@ class featureExtractor():
             wfh = hex(int(fc[1], 16))
         return wfh, chunk
 
-    def is_done(self):
-        return self.done
+
 """
 def main():
     path = "/Users/test/Documents/SegDedup/data/user5"

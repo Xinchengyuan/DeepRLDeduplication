@@ -2,9 +2,6 @@ import random
 import gym
 import numpy as np
 from gym import spaces
-from statistics import variance
-import pandas as pd
-
 
 # reward_threshold = 475.0
 # whole_chunk_hash_index = 0
@@ -15,29 +12,33 @@ import pandas as pd
 class DedupEnv(gym.Env):
     """deduplication environment """
 
-    def __init__(self, seg):
-        """df: a pandas data frame passed in for chunk info
-           cache: cache storage which is a list contains lists of
+    def __init__(self, size, feature_extractor, data_preprocessor, cache_thresh):
+        """
+           size: segmentation size threshold
+           cache_thresh: cache length threshold
+           feature_extractor: a feature extractor object
+           data_preprocessor: a data preprocessor object
            [chunk hash, chunk size, whole_file_hash_index]}
         """
         super(DedupEnv, self).__init__()
-
-        # self.chunk_hsh = 0
-        self.seg = seg # sample segment list
-        self.cache = []
+        self.size = size
+        self.cache_thresh = cache_thresh
+        self.feature_extractor = feature_extractor
+        self.data_preprocessor = data_preprocessor
+        self.cache = {}
+        self.bins = {}
+        self.seg_info = {} # store previous features, segments and hits from cache
         # self.thresh = thresh
-        self.done_flag = 0
-        self.state = [0, 0, 0, 0]
-        self.data_length = len(self.seg)
-        self.current_step = 0
-        self.min_chunk = 0  # minimum chunk hash of the current segment
-        self.max_chunk = 0  # maximum chunk hash of the current segment
-        self.seg_size = 0
+        #self.done_flag = 0
+        self.state = [0, 0, 0]
+        self.chunks = []
+        self.feature = 0
+        self.file = []
         # Action space: two actions, 0: select a chunk 1: skip chunk
         self.action_space = spaces.Discrete(2)
         # observation: Box(4) ('Whole _File_Hash','seg min fingerprint', 'seg max fingerprint','chunk size')
         self.high = 0xffffffffffff
-        self.observation_space = spaces.Box(low=0, high=self.high, shape=(4,), dtype=np.int64)
+        self.observation_space = spaces.Box(low=0, high=self.high, shape=(3,), dtype=np.int64)
         # n chunk fingerprints
         # self.observation_space = spaces.Box(
         # low=0, high=1, shape=(1,), dtype=np.float32)
@@ -46,46 +47,55 @@ class DedupEnv(gym.Env):
     """get the next observation, a row (a segment from segment list)"""
 
     def _next_row(self):
-        row = np.array(self.seg[self.current_step])
-        self.min_chunk = row[1]
-        self.max_chunk = row[2]
-        self.seg_size = row[3]
-        self.state = row.reshape(4, )
-
-    """check if the maximum and minimum chunk hash of current segment exists in the cache"""
-
-    def _check_seg(self):
-        if self.cache:
-            for subLst in self.cache:
-                if all(x in subLst for x in [self.min_chunk, self.max_chunk]):
-                    return True
-        return False
+        if not self.feature_extractor.done:
+            f_next = ()
+            segments = []
+            if not f_next:
+                f_next = self.feature_extractor.next_file()
+                segments = self.data_preprocessor.segment(f_next, self.size)
+            segment = segments.pop(0)
+            min_chunk = segment[1]
+            max_chunk = segment[2]
+            self.chunks = segment[4]
+            self.feature = hash(self.min_chunk, self.max_chunk)
+            row = np.array(segment[1:4])
+            self.state = row.reshape(3,)
+        else:
+          self.chunks = []
 
     """How the agent should take action. 
-       Action: action type, 0 or 1
-       thresh: the cache size threshold
-       return the corresponding state after the action is taken
-       1. A unique chunk is stored
-       2. A duplicated chunk is stored
-       3  A duplicated chunk is removed
-       4. A unique chunk is removed
+       Action: action type, 0 or 1s
+       0: Do not pick the segment
+       1: Pick the segment
+       Return the corresponding state after the action is taken
+       Feedback to the agent with reward
        """
 
     def _act_(self, action):
         # state = 0  # initial state
         reward = 0
-        if action == 1:  # storing a chunk to cache
-            if self._check_seg():
-                print("Duplicate segment selected")
-                self.done_flag = 1  # terminate since duplicate segment selected
-                return -1 * int(self.seg_size)  # wasted this much of space
-            self.cache.append(self.state)
-        else:
-            if not self._check_seg():  # a unique segment is omitted:
-                #print("Unique segment omitted")
-               #self.done_flag = 1  # terminate
-                return -2 * int(self.seg_size)  # lost this much of info
-        reward = self.seg_size
+
+        if action == 1:  # storing a segment to cache
+            try:
+                self.seg_info[self.feature][0] = self.seg_info[self.feature][0]+1 # Hits in seg_info
+                reward = self.seg_info[self.feature][0]
+            except KeyError:
+                try:
+                    # see if there's hit in cache
+                    self.cache[self.feature][0] = self.cache[self.feature][0] + 1
+                    reward = -1 * self.cache[self.feature][0]
+                except KeyError:
+                    #create new entry in cache
+                    self.cache[self.feature] = (0, self.chunks)
+                    reward = 0
+        else: # skip a segment
+            #Check if any punish needed
+            try:
+                #get number of hit in seg_info, if any, if this segment were selected
+                hits = self.seg_info[self.feature][0]
+            except KeyError:
+                hits = 0
+            reward = hits*(-1)
 
         # if any(self.chunk_hsh in subl for subl in self.cache):
         # state = 2
@@ -113,39 +123,32 @@ class DedupEnv(gym.Env):
         # self.data_length = self.data_length + 1
         return reward
 
-    def step(self, action):
+    def _step_(self, action):
         done = False
         self._next_row()
         reward = self._act_(action)
         curr_state = self.state
-        if self.current_step == self.data_length-1:
-            self.done_flag = 1
 
-        if self.done_flag == 1:
-           done = True
-        else:
-           self.current_step = self.current_step + 1
+        if not self.chunks or len(self.cache) == self.cache_thresh:
+            done = True
+            #check out cache content to seg_info
+            self.seg_info.update(self.cache)
 
         # info = f' state: {curr_state}, reward: {reward}, cache size: {len(self.cache)}'
 
         return curr_state, reward, done
 
-    def reset(self):
+    def _reset_(self):
         # self.chunk_hsh = 0
         # reset current chunk hash
         # self.current_step = random.randint(
         # 0, self.data_length - 1
-        # )
+        #
         # empty the cache
-        self.cache = []
-        self.state = [0, 0, 0, 0]
-        self.current_step = 0
-        self.done_flag = 0
+        self.cache = {}
+        self.state = [0, 0, 0]
+        #self.done_flag = 0
         return self.state
-
-    # return cache
-    def get_cache(self):
-        return self.cache
 
     def render(self, mode='human'):
         if self.seg is not None:
