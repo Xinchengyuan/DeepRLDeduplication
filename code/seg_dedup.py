@@ -1,20 +1,19 @@
-import gym
-import random
-import pandas as pd
-import numpy as np
 import os
+import random
 import time
 from collections import deque
 
-from dedup_feature_extractor import featureExtractor
-from data_preprocessing import DataPreprocessor
-import tensorflow as tf
+import gym
 import gym_dedup
+import numpy as np
+import psutil
+import tensorflow as tf
 # from argparse import ArgumentParser
-import data_preprocessing as dp
 from keras.callbacks import TensorBoard
-import progressbar
 
+from data_preprocessing import DataPreprocessor
+from dedup_feature_extractor import featureExtractor
+from guppy import hpy
 
 # Own Tensorboard class
 
@@ -66,25 +65,28 @@ class SegDedup:
        path: path to .hash.anon data files
        size: segment size threshold
        cache_size_thresh: cache size threshold
+       mode: file input mode, default / sample
        perc: sample ratio
        expl_rt exploration_rate:
        hidden: number of hidden_units
     """
 
-    def __init__(self, path, size, cache_size_thresh, perc, max_episodes, expl_rt, discount, hidden):
+    def __init__(self, path, size, mode, cache_size_threshold, expl_rt, discount, hidden):
         # environment
         self.path = path
         self.size = size
-        self.perc = perc
+        self.mode = mode
+        self.cache_size_thresh = cache_size_threshold
+        # self.perc = perc
         # self.sample = np.asarray(self.sample, dtype=np.int64)
         self.discount = discount
-        feature_extractor = featureExtractor(path=self.path, mode='sample')
+        feature_extractor = featureExtractor(path=self.path, mode=self.mode)
         data_preprocessor = DataPreprocessor()
         self.env = gym.make('dedup-v0', size=self.size, feature_extractor=feature_extractor,
                             data_preprocessor=data_preprocessor, cache_thresh=cache_size_thresh)
 
         # hyper-parameters
-        self.max_episodes = max_episodes
+        #self.max_episodes = max_episodes
         self.expl_rt = expl_rt  # epsilon
         self.exploration_decay = 0.9995
         self.discount = float(discount)  # gamma
@@ -143,80 +145,81 @@ class SegDedup:
 
     def train(self, batch_size):
         print("Training")
+        #h = hpy()
         self.q_network.summary()
         rewards = [0]
-        EPISODE_INTERVAL = 100
+        STEP_INTERVAL = 100
         MIN_EXPLORATION = 0.001  # min epsilon threshold
-
-        for ep in range(0, self.max_episodes):
-
+        step = 1
+        done = False
+        cum_reward = 0
+        state = self.env.reset()
+        reward = 0
+        # for ep in range(0, self.max_episodes):
+        while not done:
+            print(step)
             # update tensorboard step every episode
-            self.tensorboard.step = ep
+            self.tensorboard.step = step
 
-            eps_reward = 0
-
-            time_steps_per_episode = self.sample.shape[0]
             # reset environment
-            state = self.env.reset()
-            state = np.reshape(state, (4,))
-            reward = 0
-            done = False
+            state = np.reshape(state, (3,))
 
-            bar = progressbar.ProgressBar(maxval=time_steps_per_episode / 10, widgets=[
-                progressbar.Bar('=', '[', ']'), ' ', progressbar.Percentage()])
-            bar.start()
+            # for time_step in range(time_steps_per_episode):
+            action = self.act(state)
+            # Take action
+            next_state, reward, done = self.env.step(action)
+            self.memory(state, action, reward, next_state, done)
 
-            for time_step in range(time_steps_per_episode):
-                action = self.act(state)
-                # Take action
-                next_state, reward, done = self.env.step(action)
-                self.memory(state, action, reward, next_state, done)
+            state = next_state
+            cum_reward += reward
 
-                state = next_state
-                eps_reward += reward
+            if step % STEP_INTERVAL == 0:
+                self.align_models()
+                # print("episode: {}/{}, e: {:.2}".format(step, self.max_episodes, self.expl_rt))
 
-                if done:
-                    self.align_models()
-                    print("episode: {}/{}, score: {}, e: {:.2}".format(ep, self.max_episodes, time_step, self.expl_rt))
-                    break
+            if len(self.experience_replay) > batch_size:
+                self.retrain(batch_size)
 
-                if len(self.experience_replay) > batch_size:
-                    self.retrain(batch_size)
+            # if time_step % 10 == 0:
+            # bar.update(time_step / 10 + 1)
 
-                # if time_step % 10 == 0:
-                # bar.update(time_step / 10 + 1)
+            # Append episode reward to a list and log stats (every given number of episodes)
+            rewards.append(cum_reward)
+            if not cum_reward % STEP_INTERVAL or step == 1:
+                average_reward = sum(rewards[-STEP_INTERVAL:]) / len(rewards[-STEP_INTERVAL:])
+                min_reward = min(rewards[-STEP_INTERVAL:])
+                max_reward = max(rewards[-STEP_INTERVAL:])
+                self.tensorboard.update_stats(reward_avg=average_reward, reward_min=min_reward,
+                                              reward_max=max_reward, epsilon=self.expl_rt)
 
-                # Append episode reward to a list and log stats (every given number of episodes)
-                rewards.append(eps_reward)
-                if not ep % EPISODE_INTERVAL or ep == 1:
-                    average_reward = sum(rewards[-EPISODE_INTERVAL:]) / len(rewards[-EPISODE_INTERVAL:])
-                    min_reward = min(rewards[-EPISODE_INTERVAL:])
-                    max_reward = max(rewards[-EPISODE_INTERVAL:])
-                    self.tensorboard.update_stats(reward_avg=average_reward, reward_min=min_reward,
-                                                  reward_max=max_reward, epsilon=self.expl_rt)
-
-                    # Save model, but only when min reward is greater or equal a set value
-                    # if min_reward >= 0:
-                    # self.q_network.save(
-                    # f'models/{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__'
-                    # f'{int(time.time())}.model')
+                # Save model, but only when min reward is greater or equal a set value
+                # if min_reward >= 0:
+                # self.q_network.save(
+                # f'models/{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__'
+                # f'{int(time.time())}.model')
 
             # decay the epsilon
 
             if self.expl_rt > MIN_EXPLORATION:
                 self.expl_rt *= self.exploration_decay
                 self.expl_rt = max(MIN_EXPLORATION, self.expl_rt)
+            step = step + 1
 
-            bar.finish()
-            if (ep + 1) % 10 == 0:
-                print("*****************************")
-                print("Episode: {}".format(ep + 1))
-                print("*****************************")
+        #h.heap()
+        print("Training finished")
+
+        # bar.finish()
+        """
+        if (ep + 1) % 10 == 0:
+            print("*****************************")
+            print("Episode: {}".format(ep + 1))
+            print("*****************************")"""
 
     def get_cache(self):
         return self.env.get_cache()
 
 
+"""
 def generate_data(perc):
     n = 1000 - int(1000 * perc)
     ls = []
@@ -231,36 +234,34 @@ def generate_data(perc):
     # else:
     res = ls * int((1000 / n))
     return res
+"""
 
 
-def dedup(seg, seg_size, perc, max_ep, exploration_rate, discount_factor, hidden_units, times, original_size):
-    dedup_ratios = []
-    sum_cum = 0
-    for i in range(times):
-        print("Round ", i)
-        if len(seg) == 0:
-            break
-        agent = SegDedup(seg, seg_size, perc, max_ep, exploration_rate, discount_factor, hidden_units)
-        # train
-        agent.train(batch_size=32)
-        # get_cache
-        cache = agent.get_cache()
+def dedup(path, size, mode, cache_size_threshold, exploration_rt, discount_ft, num_hidden_units,
+          original_size):
+    agent = SegDedup(path, size, mode, cache_size_threshold, exploration_rt, discount_ft, num_hidden_units)
+    # train
 
-        # calculate cumulated dedup ratio
-        sum_cum = sum_cum + sum([subl[3] for subl in cache])
-        print(sum_cum)
-        dedup_ratios.append(int(original_size) / sum_cum)
+    agent.train(batch_size=32)
+    # get_cache
+    # cache = agent.get_cache()
 
-        # update data
-        temp = []
-        cache = np.array(cache).tolist()
-        print(cache)
-        if not type(cache) == type(None):
-            for s in seg:
-                if s not in cache:
-                    temp.append(s)
-            seg = temp
-    return dedup_ratios
+    # calculate cumulated dedup ratio
+    sum_cum = agent.env.accum_seg_size
+
+    print(sum_cum)
+    dedup_ratio = original_size / sum_cum
+
+    # update data
+    """temp = []
+    cache = np.array(cache).tolist()
+    print(cache)"""
+    """if not type(cache) == type(None):
+        for s in seg:
+            if s not in cache:
+                temp.append(s)
+        seg = temp"""
+    return dedup_ratio
 
 
 """
@@ -276,36 +277,25 @@ def arg_parse():
 """
 
 if __name__ == '__main__':
+    file_path = "/Users/test/Documents/SegDedup/data/user5"
     # args = arg_parse()
     if not os.path.isdir('models'):
         os.makedirs('models')
-    df = "../data/out.csv"
-    ds = pd.read_csv(df, dtype=np.int64, chunksize=1000, nrows=20000)
-    seg_size = 4096
-    percentage = [0, 0.01]
-    max_ep = 2
+    # df = "../data/out.csv"
+    # ds = pd.read_csv(df, dtype=np.int64, chunksize=1000, nrows=20000)
+    seg_size = 8192
+    # percentage = [0, 0.01]
+    #max_ep = 2
     exploration_rate = 1.00  # going to be decayed later
     discount_factor = 0.99
-    hidden_units = 32
 
-    data = generate_data(0.95)
+    # data = generate_data(0.95)
     # agent = dedup(seg, seg_size, percentage, max_ep, exploration_rate, discount_factor, hidden_units,3)
-    orignal_size = sum([subl[3] for subl in data])
-
-    rt = dedup(data, seg_size, percentage, max_ep, exploration_rate, discount_factor, hidden_units, 10, orignal_size)
-    print(rt)
-    st = []
-    for item in data:
-        if item not in st:
-            st.append(item)
-    optimal_dedup = orignal_size / sum([subl[3] for subl in st])
-    print("Optimal dedup ratio: ", optimal_dedup)
-    # agent.train(batch_size=32)
-    """sp = agent.sample.tolist()
-    print(sp)
-    print(len(sp))
-    st = []
-    for item in sp:
-        if item not in st:
-            st.append(item)
-    print(len(st))"""
+    original = 149090736688
+    cache_size_thresh = 2048000  # in bytes
+    h = hpy()
+    rt = dedup(path=file_path, size=seg_size, mode='default', cache_size_threshold=cache_size_thresh,
+               exploration_rt=exploration_rate, discount_ft=discount_factor, num_hidden_units=32,
+               original_size=original)
+    print(h.heap())
+    print("Deduplication ratio: ", rt)

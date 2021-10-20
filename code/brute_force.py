@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 start_time = time.time()
 
 path = "/Users/test/Documents/SegDedup/data/user5"
-feature_extractor = featureExtractor(path)
+feature_extractor = featureExtractor(path=path, mode='sample')
 num_snap = feature_extractor.snapshot_num
 original_size = 0
 unique = {}  # {chunk_hash: chunk_size}
@@ -46,7 +46,7 @@ print("Calculating deduplication ratio")
 sum = 0
 for v in unique.values():
     sum = sum + v
-dedup_ratio = original_size / sum
+dedup_ratio = 149090736688 / sum
 print("--- %s seconds ---" % duration)
 print("Deduplication ratio: {}".format(dedup_ratio))
 print("Memory Usage: {} mib".format(mem))

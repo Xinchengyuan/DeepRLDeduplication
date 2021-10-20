@@ -26,18 +26,19 @@ class featureExtractor():
             [f for f in os.listdir(self.path) if f.endswith('.hash.anon')])  # a queue of file names sorted
         if self.mode == 'sample':
             print("Sampling")
-            sample = [self.files[0]]
+            sample = []
             i = 0
             while True:
                 if 2 ** i >= len(self.files):
                     break
                 else:
-                    sample.append(self.files[i ** 2])
+                    sample.append(self.files[2 ** i])
+                    i = i + 1
             sample.append(self.files[-1])
             self.files = sample
 
         self.snapshot_num = len(self.files)
-        self.new_snapshot = False
+        # self.new_snapshot = False
         self.done = False
         self.info = ""  # self.information text to extract data from
 
@@ -62,10 +63,11 @@ class featureExtractor():
         chunk = []
         wfh = ""
         i = 0
-        self.new_snapshot = False
+        # self.new_snapshot = False
         if not self.info:
             if self.files:
-                self.new_snapshot = True
+                print("Precessing next snapshot")
+                # self.new_snapshot = True
                 i = self.snapshot_num - len(self.files) + 1
                 print("processing snapshot {n} / {t}".format(n=i, t=self.snapshot_num))
                 # retrieve a new document, which is the first document in queue
@@ -78,7 +80,8 @@ class featureExtractor():
             else:
                 self.done = True
                 return "", []
-            # delete unuseful lines
+
+        # delete unuseful lines
         while self.info and not self.info[0].startswith('Chunk Hash'):
             del (self.info[0])
 
