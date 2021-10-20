@@ -15,3 +15,4 @@ You also need:
 
 After installing gym, cd to DeepRLDeduplication/code/gym-dedup/, then run "pip3 install -e ." (do not forget the period(.) ) to install the environment that the RL agent will be interacting with.
 
+This project also need the hf-stat tool to run Download the tool at: https://tracer.filesystems.org/fs-hasher-0.9.5.tar.gz
