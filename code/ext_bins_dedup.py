@@ -5,7 +5,7 @@ import psutil
 
 start_time = time.time()
 
-path = "/Users/test/Documents/SegDedup/data/t"
+path = "/Users/test/Documents/SegDedup/data/user5"
 # data = pd.read_csv("../data/pt.csv", dtype=np.int64, chunksize=5)
 primary = {}  # primary index {representative index, bin number}
 bin = {}  # {bin num: {ck1:size1, ck2:size2, ck3:size3, ...}}
@@ -13,7 +13,7 @@ bin = {}  # {bin num: {ck1:size1, ck2:size2, ck3:size3, ...}}
 curr_bin_num = -1
 repre = {}  # {file: representative index}
 rid = ""
-feature_extractor = featureExtractor(path)
+feature_extractor = featureExtractor(path=path, mode='sample')
 complete = False
 
 while not feature_extractor.done:
@@ -44,11 +44,11 @@ mem = process.memory_info()[0] / float(2 ** 20)
 # compute deduplication ratio
 duration = time.time() - start_time
 print("Calculating deduplication ratio")
-sum = 0
+s = 0
 for dic in bin.values():
     for v in dic.values():
-        sum = sum + v
-dedup_ratio = 149090736688 / sum
+        s = s + v
+dedup_ratio = feature_extractor.total_chunk_size / s
 print("--- %s seconds ---" % duration)
 print("Deduplication ratio: {}".format(dedup_ratio))
 print("Memory Usage: {} mib".format(mem))

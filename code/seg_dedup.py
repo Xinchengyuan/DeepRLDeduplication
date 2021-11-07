@@ -13,7 +13,7 @@ from keras.callbacks import TensorBoard
 
 from data_preprocessing import DataPreprocessor
 from dedup_feature_extractor import featureExtractor
-from guppy import hpy
+#from guppy import hpy
 
 # Own Tensorboard class
 
@@ -80,10 +80,10 @@ class SegDedup:
         # self.perc = perc
         # self.sample = np.asarray(self.sample, dtype=np.int64)
         self.discount = discount
-        feature_extractor = featureExtractor(path=self.path, mode=self.mode)
-        data_preprocessor = DataPreprocessor()
-        self.env = gym.make('dedup-v0', size=self.size, feature_extractor=feature_extractor,
-                            data_preprocessor=data_preprocessor, cache_thresh=cache_size_thresh)
+        self.feature_extractor = featureExtractor(path=self.path, mode=self.mode)
+        self.data_preprocessor = DataPreprocessor()
+        self.env = gym.make('dedup-v0', size=self.size, feature_extractor=self.feature_extractor,
+                            data_preprocessor=self.data_preprocessor, cache_thresh=cache_size_thresh)
 
         # hyper-parameters
         #self.max_episodes = max_episodes
@@ -157,7 +157,7 @@ class SegDedup:
         reward = 0
         # for ep in range(0, self.max_episodes):
         while not done:
-            print(step)
+            #print(step)
             # update tensorboard step every episode
             self.tensorboard.step = step
 
@@ -174,6 +174,7 @@ class SegDedup:
             cum_reward += reward
 
             if step % STEP_INTERVAL == 0:
+                print("Step: ", step)
                 self.align_models()
                 # print("episode: {}/{}, e: {:.2}".format(step, self.max_episodes, self.expl_rt))
 
@@ -237,8 +238,7 @@ def generate_data(perc):
 """
 
 
-def dedup(path, size, mode, cache_size_threshold, exploration_rt, discount_ft, num_hidden_units,
-          original_size):
+def dedup(path, size, mode, cache_size_threshold, exploration_rt, discount_ft, num_hidden_units):
     agent = SegDedup(path, size, mode, cache_size_threshold, exploration_rt, discount_ft, num_hidden_units)
     # train
 
@@ -248,9 +248,8 @@ def dedup(path, size, mode, cache_size_threshold, exploration_rt, discount_ft, n
 
     # calculate cumulated dedup ratio
     sum_cum = agent.env.accum_seg_size
-
-    print(sum_cum)
-    dedup_ratio = original_size / sum_cum
+    #print(sum_cum)
+    dedup_ratio = agent.feature_extractor.total_chunk_size / sum_cum
 
     # update data
     """temp = []
@@ -283,7 +282,7 @@ if __name__ == '__main__':
         os.makedirs('models')
     # df = "../data/out.csv"
     # ds = pd.read_csv(df, dtype=np.int64, chunksize=1000, nrows=20000)
-    seg_size = 8192
+    seg_size = 12288
     # percentage = [0, 0.01]
     #max_ep = 2
     exploration_rate = 1.00  # going to be decayed later
@@ -291,11 +290,10 @@ if __name__ == '__main__':
 
     # data = generate_data(0.95)
     # agent = dedup(seg, seg_size, percentage, max_ep, exploration_rate, discount_factor, hidden_units,3)
-    original = 149090736688
+    #original =
     cache_size_thresh = 2048000  # in bytes
-    h = hpy()
-    rt = dedup(path=file_path, size=seg_size, mode='default', cache_size_threshold=cache_size_thresh,
-               exploration_rt=exploration_rate, discount_ft=discount_factor, num_hidden_units=32,
-               original_size=original)
-    print(h.heap())
+    #h = hpy()
+    rt = dedup(path=file_path, size=seg_size, mode='sample', cache_size_threshold=cache_size_thresh,
+               exploration_rt=exploration_rate, discount_ft=discount_factor, num_hidden_units=32)
+    #print(h.heap())
     print("Deduplication ratio: ", rt)

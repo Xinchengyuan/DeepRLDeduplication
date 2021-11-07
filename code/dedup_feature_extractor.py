@@ -17,30 +17,39 @@ class featureExtractor():
          - mode: input files selection mode (see details below):
             - default: use all files in path
             - sample: use every 2^n th file as sample
+            - testing : use a ready made txt file containing info  shorter version of equivalent content format of that
+               in self.info for testing
     """
 
     def __init__(self, path, mode):
         self.path = path
         self.mode = mode
-        self.files = sorted(
-            [f for f in os.listdir(self.path) if f.endswith('.hash.anon')])  # a queue of file names sorted
-        if self.mode == 'sample':
-            print("Sampling")
-            sample = []
-            i = 0
-            while True:
-                if 2 ** i >= len(self.files):
-                    break
-                else:
-                    sample.append(self.files[2 ** i])
-                    i = i + 1
-            sample.append(self.files[-1])
-            self.files = sample
-
-        self.snapshot_num = len(self.files)
-        # self.new_snapshot = False
+        self.total_chunk_size = 0
         self.done = False
-        self.info = ""  # self.information text to extract data from
+        if mode == 'test':
+            for f in os.listdir(self.path):
+                if f.endswith('txt'):
+                    self.file = self.path + "/" + f
+            self.info = [s.strip() for s in open(self.file) if s.strip()]
+        else:
+            self.files = sorted(
+                [f for f in os.listdir(self.path) if f.endswith('.hash.anon')])  # a queue of file names sorted
+            if self.mode == 'sample':
+                print("Sampling")
+                sample = []
+                i = 0
+                while True:
+                    if 2 ** i >= len(self.files):
+                        break
+                    else:
+                        sample.append(self.files[2 ** i])
+                        i = i + 1
+                sample.append(self.files[-1])
+                self.files = sample
+
+            self.snapshot_num = len(self.files)
+            # self.new_snapshot = False
+            self.info = ""  # self.information text to extract data from
 
     """ Run Command"""
 
@@ -49,37 +58,35 @@ class featureExtractor():
         cmd = hf_path + '-h -w -f ' + file
         out = subprocess.check_output(cmd, shell=True, text=True)
         # remove empty lines
-        out = "".join([s for s in out.strip().splitlines(True) if s.strip()])
-        lines = out.split('\n')
+        # out = "".join([s for s in out.strip().splitlines(True) if s.strip()])
+        lines = [s for s in out.strip().splitlines(True) if s.strip()]
+        # lines = out.split('\n')
         return lines
 
     """Get next file self.info, return: 
         1. File Hash
-        2. Chunk self.info: [(chunk1, size), (chunk2, size2)...] ]
+        2. Chunk fingerprints of this file
     """
 
     def next_file(self):
-        file_hash = 0
         chunk = []
-        wfh = ""
-        i = 0
-        # self.new_snapshot = False
-        if not self.info:
-            if self.files:
-                print("Precessing next snapshot")
-                # self.new_snapshot = True
-                i = self.snapshot_num - len(self.files) + 1
-                print("processing snapshot {n} / {t}".format(n=i, t=self.snapshot_num))
-                # retrieve a new document, which is the first document in queue
-                # print(self.files)
-                curr_file = self.files.pop(0)
-                # parse the file with hf-stat
-                complete_path = self.path + "/" + curr_file
-                self.info = self.hf_stat(complete_path)
-            ## Extract the fingerprint of the next file and chunks contained ##
-            else:
-                self.done = True
-                return "", []
+        if not self.mode == "test":
+            # file_hash = 0
+            i = 0
+            # self.new_snapshot = False
+            if not self.info:
+                if self.files:
+                    print("Precessing next snapshot")
+                    # self.new_snapshot = True
+                    i = self.snapshot_num - len(self.files) + 1
+                    print("processing snapshot {n} / {t}".format(n=i, t=self.snapshot_num))
+                    # retrieve a new document, which is the first document in queue
+                    # print(self.files)
+                    curr_file = self.files.pop(0)
+                    # parse the file with hf-stat
+                    complete_path = self.path + "/" + curr_file
+                    self.info = self.hf_stat(complete_path)
+                ## Extract the fingerprint of the next file and chunks contained ##
 
         # delete unuseful lines
         while self.info and not self.info[0].startswith('Chunk Hash'):
@@ -92,13 +99,18 @@ class featureExtractor():
             while not self.info[0].startswith('Whole File'):  # Stop before the whole file hash line
                 # record all chunk hashes
                 temp = self.info.pop(0).split()
+                #print(temp)
                 current_chunk = temp[0].replace(":", "").strip()
                 current_chunk = hex(int(current_chunk, 16))
                 curr_size = int(temp[1])
+                self.total_chunk_size = self.total_chunk_size + curr_size
                 chunk.append((current_chunk, curr_size))
             # get whole file chunk
             fc = self.info.pop(0).split(":")
             wfh = hex(int(fc[1], 16))
+        else:
+            self.done = True
+            return "", []
         return wfh, chunk
 
 

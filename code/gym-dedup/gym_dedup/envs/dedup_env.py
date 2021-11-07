@@ -74,14 +74,18 @@ class DedupEnv(gym.Env):
     """
     def _get_segments(self):
         f_next = ()
-        print("Obtaining next file")
+        #print("Obtaining next file")
         f_next = self.feature_extractor.next_file()
+        #print(f_next)
         self.segments = self.data_preprocessor.segment(f_next, self.size)
-        self.file_fp = self.segments.pop(0)
-        #record first segment as state
-        row = np.array(self.segments[0][:3])
+        #print("Segments: ", self.segments)
+        try:
+            self.file_fp = self.segments.pop(0)
+            #record first segment as state
+            row = np.array(self.segments[0][:3])
+        except IndexError:
+            row = np.array([0, 0, 0])
         self.state = row.reshape(3, )
-
     """
       load a segment to cache, given feature and factor to time the reward
     """
@@ -103,7 +107,7 @@ class DedupEnv(gym.Env):
             reward = factor * self.cache[feature][0]
         except KeyError:
             # create new entry in cache
-            print("Adding to cache")
+            #print("Adding to cache")
             self.cache[feature] = [0, seg[2], seg[3]]
             reward = 1
         self.cache_size = self.cache_size + seg[2]
@@ -126,23 +130,24 @@ class DedupEnv(gym.Env):
         # state = 0  # initial state
         self._get_segments()
         reward = 0
-        if action == 1:
-            for seg in self.segments:
-                feature = self.encode(seg[1], seg[0])
-            #check bloom filter
-                if self.bloom_filter.does_exist(feature):
-                   reward = reward-1
-                else:
-                   reward=self._load_to_cache(seg, feature, -1)
+        if self.segments:
+            if action == 1:
+                for seg in self.segments:
+                    feature = self.encode(seg[1], seg[0])
+                #check bloom filter
+                    if self.bloom_filter.does_exist(feature):
+                       reward = reward-1
+                    else:
+                       reward=self._load_to_cache(seg, feature, -1)
 
-        else: # skip a segment
-            for seg in self.segments:
-                feature = self.encode(seg[1], seg[0])
-                if self.bloom_filter.does_exist(feature):
-                   reward = reward+1
-                else:
-                    # try lookup feature
-                   reward=self._load_to_cache(seg, feature, 1)
+            else: # skip a segment
+                for seg in self.segments:
+                    feature = self.encode(seg[1], seg[0])
+                    if self.bloom_filter.does_exist(feature):
+                       reward = reward+1
+                    else:
+                        # try lookup feature
+                       reward=self._load_to_cache(seg, feature, 1)
 
 
 
@@ -180,13 +185,13 @@ class DedupEnv(gym.Env):
         while self.cache_size >= self.cache_thresh:
             # evict feature with highest hits score and put corresponding chunks to bin
             eviction = max(self.cache, key=lambda k: self.cache[k][0])
-            print ("Evicting", eviction)
+            #print ("Evicting", eviction)
             #print(self.cache[eviction])
             self.bloom_filter.add(eviction)
             self.bins[self.bin_num] = {}
             #Load to bins the containing chunks of eviction feature
-            print ("Loading to bin ", self.bin_num)
-            with open ("recipe.txt","a") as f:
+            #print ("Loading to bin ", self.bin_num)
+            with open ("rec.txt","a") as f:
              f.write(str({self.bin_num: set(self.cache[eviction][2])}))
              #ins[self.bin_num] = )
             self.accum_seg_size = self.accum_seg_size + self.cache[eviction][1]
@@ -205,10 +210,12 @@ class DedupEnv(gym.Env):
                         #self.bins[self.bin_num] = set(self.cache[key][2])
                         self.accum_seg_size = self.accum_seg_size + self.cache[key][1]
                         self.bin_num = self.bin_num + 1
-                        del self.cache[key]
+                        #del self.cache[key]
+            reward = 0
         else:
             reward = self.act(action)
-            curr_state = self.state
+
+        curr_state = self.state
 
 
 
